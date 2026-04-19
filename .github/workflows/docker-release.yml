@@ -162,7 +162,7 @@ jobs:
           build-args: |
             OPENCLAW_INSTALL_DOCKER_CLI=1
             OPENCLAW_DOCKER_APT_PACKAGES=git curl wget jq python3-pip build-essential ffmpeg sqlite3 libpq-dev default-libmysqlclient-dev
-            OPENCLAW_EXTENSIONS=apex telegram ollama openai anthropic gemini signal docker-sandbox browser nostr-tools python-interpreter
+            OPENCLAW_EXTENSIONS=apex weixin telegram ollama openai anthropic gemini signal docker-sandbox browser nostr-tools python-interpreter
           tags: ${{ steps.tags.outputs.value }}
           labels: ${{ steps.labels.outputs.value }}
           provenance: false
@@ -283,7 +283,7 @@ jobs:
           build-args: |
             OPENCLAW_INSTALL_DOCKER_CLI=1
             OPENCLAW_DOCKER_APT_PACKAGES=git curl wget jq python3-pip build-essential ffmpeg sqlite3 libpq-dev default-libmysqlclient-dev
-            OPENCLAW_EXTENSIONS=apex telegram ollama openai anthropic gemini signal docker-sandbox browser nostr-tools python-interpreter
+            OPENCLAW_EXTENSIONS=apex weixin telegram ollama openai anthropic gemini signal docker-sandbox browser nostr-tools python-interpreter
           tags: ${{ steps.tags.outputs.value }}
           labels: ${{ steps.labels.outputs.value }}
           provenance: false
