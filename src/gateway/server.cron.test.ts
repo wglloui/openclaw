@@ -861,6 +861,8 @@ describe("gateway server cron", () => {
       const runRes = await rpcReq(ws, "cron.run", { id: jobId, mode: "force" }, 20_000);
       expect(runRes.ok).toBe(true);
       expect(runRes.payload).toEqual({ ok: true, enqueued: true, runId: expect.any(String) });
+      const manualRunId = (runRes.payload as { runId?: unknown } | null)?.runId;
+      expect(typeof manualRunId).toBe("string");
       const finishedPayload = await finishedRun;
       expect(finishedPayload).toMatchObject({
         jobId,
@@ -879,6 +881,7 @@ describe("gateway server cron", () => {
       expect((entries as Array<{ deliveryStatus?: unknown }>).at(-1)?.deliveryStatus).toBe(
         "not-requested",
       );
+      expect((entries as Array<{ runId?: unknown }>).at(-1)?.runId).toBe(manualRunId);
       const allRunsRes = await rpcReq(ws, "cron.runs", {
         scope: "all",
         limit: 50,
@@ -903,7 +906,7 @@ describe("gateway server cron", () => {
       const autoRes = await rpcReq(ws, "cron.add", {
         name: "auto run test",
         enabled: true,
-        schedule: { kind: "at", at: new Date(Date.now() + 200).toISOString() },
+        schedule: { kind: "at", at: new Date(Date.now() - 1).toISOString() },
         sessionTarget: "main",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "auto" },
