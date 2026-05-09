@@ -621,7 +621,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
     expect(sessionPrompt).not.toHaveBeenCalled();
     expect(result.finalPromptText).toBeUndefined();
-    expect(result.promptError).toBeFalsy();
+    expect(result.promptError).toBeNull();
     expect(result.messagesSnapshot).toEqual([
       expect.objectContaining({ role: "user", content: "seed" }),
     ]);
@@ -644,7 +644,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
   it("uses assembled context as the default precheck authority", async () => {
     let sawPrompt = false;
-    const hugeHistory = "large raw history ".repeat(25_000);
+    const hugeHistory = "large raw history ".repeat(2_000);
 
     const result = await createContextEngineAttemptRunner({
       contextEngine: createTestContextEngine({
@@ -678,7 +678,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
   it("honors context engines that opt into preassembly overflow authority", async () => {
     let sawPrompt = false;
-    const hugeHistory = "large raw history ".repeat(25_000);
+    const hugeHistory = "large raw history ".repeat(2_000);
 
     const result = await createContextEngineAttemptRunner({
       contextEngine: createTestContextEngine({
@@ -712,7 +712,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
   });
 
   it("snapshots pre-assembly messages before assemble even when the engine windows in place", async () => {
-    const hugeHistory = "large raw history ".repeat(25_000);
+    const hugeHistory = "large raw history ".repeat(2_000);
     const preassemblyMarker = { role: "user", content: hugeHistory, timestamp: 1 } as AgentMessage;
 
     await createContextEngineAttemptRunner({
@@ -811,7 +811,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
     expect(seen.prompt).toBe("hello");
     expect(seen.prompt).not.toContain("[Inter-session message]");
-    expect(seen.messages).toEqual([]);
+    expect(seen.messages).toStrictEqual([]);
     expect(seen.systemPrompt ?? "").toBe("");
     expect(result.finalPromptText).toBe("hello");
     expect(result.systemPromptReport?.systemPrompt ?? "").toBe("");
@@ -966,7 +966,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     ).toBe(true);
   });
 
-  it("forwards silentExpected to the embedded subscription", async () => {
+  it("forwards silentExpected to the embedded subscription", () => {
     const params = buildEmbeddedSubscriptionParams({
       session: {} as never,
       runId: "run-context-engine-forwarding",

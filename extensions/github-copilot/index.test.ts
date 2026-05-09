@@ -6,7 +6,7 @@ import {
   ensureAuthProfileStore,
 } from "openclaw/plugin-sdk/agent-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   githubCopilotLoginCommand: vi.fn(),
@@ -26,8 +26,14 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   clearRuntimeAuthProfileStoreSnapshots();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
+
+afterAll(() => {
+  vi.doUnmock("./register.runtime.js");
+  vi.resetModules();
 });
 
 async function createAgentDir() {
@@ -319,7 +325,7 @@ describe("github-copilot plugin", () => {
     expect(result?.agents?.defaults?.model).toEqual({
       primary: "github-copilot/claude-opus-4.7",
     });
-    expect(result?.agents?.defaults?.models?.["github-copilot/claude-opus-4.7"]).toEqual({});
+    expect(result?.agents?.defaults?.models?.["github-copilot/claude-opus-4.7"]).toStrictEqual({});
 
     const profile = ensureAuthProfileStore(agentDir).profiles["github-copilot:github"];
     expect(profile).toEqual({

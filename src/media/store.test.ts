@@ -36,6 +36,10 @@ describe("media store", () => {
     return await fn(store, home);
   }
 
+  async function expectPathMissing(targetPath: string): Promise<void> {
+    await expect(fs.stat(targetPath)).rejects.toMatchObject({ code: "ENOENT" });
+  }
+
   async function expectOriginalFilenameCase(params: {
     filename: string;
     expected: string;
@@ -52,30 +56,97 @@ describe("media store", () => {
     segment: string;
     run: (store: typeof import("./store.js"), home: string) => Promise<{ path: string }>;
   }) {
-    await withTempStore(async (store, home) => {
-      const originalWriteFile = fs.writeFile.bind(fs);
-      let injectedEnoent = false;
-      vi.spyOn(fs, "writeFile").mockImplementation(async (...args) => {
-        const [filePath] = args;
-        if (
-          !injectedEnoent &&
-          typeof filePath === "string" &&
-          filePath.includes(`${path.sep}${params.segment}${path.sep}`)
-        ) {
-          injectedEnoent = true;
-          await fs.rm(path.dirname(filePath), { recursive: true, force: true });
-          const err = new Error("missing dir") as NodeJS.ErrnoException;
-          err.code = "ENOENT";
-          throw err;
-        }
-        return await originalWriteFile(...args);
-      });
-
-      const saved = await params.run(store, home);
-      const savedStat = await fs.stat(saved.path);
-      expect(injectedEnoent).toBe(true);
-      expect(savedStat.isFile()).toBe(true);
+    const mockKey = `./store.js?scope=retry-pruned-write-${params.segment}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let injectedEnoent = false;
+    vi.doMock("../infra/file-store.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../infra/file-store.js")>();
+      return {
+        ...actual,
+        fileStore: (options: Parameters<typeof actual.fileStore>[0]) => {
+          const actualStore = actual.fileStore(options);
+          return {
+            ...actualStore,
+            write: async (...args: Parameters<typeof actualStore.write>) => {
+              const [relativePath] = args;
+              if (!injectedEnoent && relativePath.includes(`${params.segment}${path.sep}`)) {
+                injectedEnoent = true;
+                await fs.rm(path.dirname(actualStore.path(relativePath)), {
+                  recursive: true,
+                  force: true,
+                });
+                const err = new Error("missing dir") as NodeJS.ErrnoException;
+                err.code = "ENOENT";
+                throw err;
+              }
+              return await actualStore.write(...args);
+            },
+          };
+        },
+      };
     });
+
+    try {
+      const storeWithMock = await importFreshModule<typeof import("./store.js")>(
+        import.meta.url,
+        mockKey,
+      );
+      await withTempStore(async (_store, home) => {
+        const saved = await params.run(storeWithMock, home);
+        const savedStat = await fs.stat(saved.path);
+        expect(injectedEnoent).toBe(true);
+        expect(savedStat.isFile()).toBe(true);
+      });
+    } finally {
+      vi.doUnmock("../infra/file-store.js");
+    }
+  }
+
+  async function expectFailedBufferWriteCase() {
+    const mockKey = `./store.js?scope=failed-buffer-write-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const attemptedRelPaths: string[] = [];
+    vi.doMock("../infra/file-store.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../infra/file-store.js")>();
+      return {
+        ...actual,
+        fileStore: (options: Parameters<typeof actual.fileStore>[0]) => {
+          const actualStore = actual.fileStore(options);
+          return {
+            ...actualStore,
+            write: async (...args: Parameters<typeof actualStore.write>) => {
+              const [relativePath] = args;
+              if (relativePath.includes(`failed-buffer${path.sep}`)) {
+                attemptedRelPaths.push(relativePath);
+                const err = new Error("no space left on device") as NodeJS.ErrnoException;
+                err.code = "ENOSPC";
+                throw err;
+              }
+              return await actualStore.write(...args);
+            },
+          };
+        },
+      };
+    });
+
+    try {
+      const storeWithMock = await importFreshModule<typeof import("./store.js")>(
+        import.meta.url,
+        mockKey,
+      );
+      await withTempStore(async (_store) => {
+        const mediaDir = await storeWithMock.ensureMediaDir();
+        await expect(
+          storeWithMock.saveMediaBuffer(Buffer.from("voice"), "audio/ogg", "failed-buffer"),
+        ).rejects.toMatchObject({ code: "ENOSPC" });
+
+        const failedDir = path.join(mediaDir, "failed-buffer");
+        const entries = await fs.readdir(failedDir).catch(() => []);
+        expect(attemptedRelPaths).toHaveLength(1);
+        expect(path.basename(attemptedRelPaths[0] ?? "")).toMatch(/^[^/\\]+\.ogg$/);
+        expect(entries).toStrictEqual([]);
+      });
+    } finally {
+      vi.doUnmock("../infra/file-store.js");
+    }
   }
 
   async function expectSavedOriginalFilenameCase(params: {
@@ -149,7 +220,7 @@ describe("media store", () => {
         const past = Date.now() - 10_000;
         await fs.utimes(saved.path, past / 1000, past / 1000);
         await store.cleanOldMedia(1);
-        await expect(fs.stat(saved.path)).rejects.toThrow();
+        await expectPathMissing(saved.path);
       },
     });
   }
@@ -223,14 +294,14 @@ describe("media store", () => {
       const state = await params.setup(store);
       await params.run(store);
       for (const removedFile of state.removedFiles) {
-        await expect(fs.stat(removedFile)).rejects.toThrow();
+        await expectPathMissing(removedFile);
       }
       for (const preservedFile of state.preservedFiles) {
         const stat = await fs.stat(preservedFile);
         expect(stat.isFile()).toBe(true);
       }
       for (const removedDir of state.removedDirs ?? []) {
-        await expect(fs.stat(removedDir)).rejects.toThrow();
+        await expectPathMissing(removedDir);
       }
       for (const preservedDir of state.preservedDirs ?? []) {
         const stat = await fs.stat(preservedDir);
@@ -310,35 +381,7 @@ describe("media store", () => {
     {
       name: "does not leave final media artifacts when buffer writes fail",
       run: async () => {
-        await withTempStore(async (store) => {
-          const mediaDir = await store.ensureMediaDir();
-          const originalWriteFile = fs.writeFile.bind(fs);
-          const attemptedPaths: string[] = [];
-          vi.spyOn(fs, "writeFile").mockImplementation(async (...args) => {
-            const [filePath] = args;
-            if (
-              typeof filePath === "string" &&
-              filePath.includes(`${path.sep}failed-buffer${path.sep}`)
-            ) {
-              attemptedPaths.push(filePath);
-              await originalWriteFile(filePath, Buffer.alloc(0), args[2]);
-              const err = new Error("no space left on device") as NodeJS.ErrnoException;
-              err.code = "ENOSPC";
-              throw err;
-            }
-            return await originalWriteFile(...args);
-          });
-
-          await expect(
-            store.saveMediaBuffer(Buffer.from("voice"), "audio/ogg", "failed-buffer"),
-          ).rejects.toMatchObject({ code: "ENOSPC" });
-
-          const failedDir = path.join(mediaDir, "failed-buffer");
-          const entries = await fs.readdir(failedDir).catch(() => []);
-          expect(attemptedPaths).toHaveLength(1);
-          expect(path.basename(attemptedPaths[0] ?? "")).toMatch(/^\..+\.tmp$/);
-          expect(entries).toEqual([]);
-        });
+        await expectFailedBufferWriteCase();
       },
     },
     {
@@ -381,7 +424,7 @@ describe("media store", () => {
           await expect(
             store.saveMediaBuffer(Buffer.from("escape"), "text/plain", traversalSubdir),
           ).rejects.toThrow("unsafe media subdir");
-          await expect(fs.stat(outsideDir)).rejects.toThrow();
+          await expectPathMissing(outsideDir);
         });
       },
     },
@@ -474,7 +517,7 @@ describe("media store", () => {
 
           await store.cleanOldMedia(1);
 
-          await expect(fs.stat(saved.path)).rejects.toThrow();
+          await expectPathMissing(saved.path);
           const inboundStat = await fs.stat(inboundDir);
           expect(inboundStat.isDirectory()).toBe(true);
         });

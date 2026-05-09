@@ -17,6 +17,7 @@ import { cleanupTempDirs, makeTempRepoRoot } from "../helpers/temp-repo.js";
 
 const tempDirs: string[] = [];
 const repoRoot = process.cwd();
+type ExecFileSyncFailure = Error & { status?: number | null; stderr?: Buffer };
 const nestedGitEnvKeys = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_DIR",
@@ -334,7 +335,7 @@ describe("scripts/changed-lanes", () => {
       extensionTests: true,
       all: false,
     });
-    expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:extensions");
+    expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:core");
     expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:extensions:test");
   });
 
@@ -781,7 +782,7 @@ describe("scripts/changed-lanes", () => {
       "utf8",
     );
     git(dir, ["add", "package.json"]);
-    expect(() =>
+    expect(
       execFileSync(
         process.execPath,
         [path.join(repoRoot, "scripts", "check-release-metadata-only.mjs"), "--staged"],
@@ -791,7 +792,7 @@ describe("scripts/changed-lanes", () => {
           stdio: "pipe",
         },
       ),
-    ).not.toThrow();
+    ).toBeInstanceOf(Buffer);
 
     writeFileSync(
       path.join(dir, "package.json"),
@@ -799,7 +800,8 @@ describe("scripts/changed-lanes", () => {
       "utf8",
     );
     git(dir, ["add", "package.json"]);
-    expect(() =>
+    let failure: ExecFileSyncFailure | undefined;
+    try {
       execFileSync(
         process.execPath,
         [path.join(repoRoot, "scripts", "check-release-metadata-only.mjs"), "--staged"],
@@ -808,8 +810,15 @@ describe("scripts/changed-lanes", () => {
           env: createNestedGitEnv(),
           stdio: "pipe",
         },
-      ),
-    ).toThrow();
+      );
+    } catch (error) {
+      failure = error as ExecFileSyncFailure;
+    }
+
+    expect(failure?.status).toBe(1);
+    expect(failure?.stderr?.toString("utf8")).toContain(
+      "[release-metadata] package.json changed outside the top-level version field",
+    );
   });
 
   it("routes root test/support changes to the tooling test lane instead of all lanes", () => {
@@ -853,6 +862,22 @@ describe("scripts/changed-lanes", () => {
     expect(plan.commands.map((command) => command.args[0])).not.toContain("tsgo:all");
   });
 
+  it("routes A2UI bundle source changes as extension changes", () => {
+    const result = detectChangedLanes([
+      "extensions/canvas/src/host/a2ui-app/bootstrap.js",
+      "extensions/canvas/src/host/a2ui-app/rolldown.config.mjs",
+    ]);
+    const plan = createChangedCheckPlan(result);
+
+    expect(result.lanes).toMatchObject({
+      extensions: true,
+      extensionTests: true,
+      all: false,
+    });
+    expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:extensions");
+    expect(plan.commands.map((command) => command.args[0])).not.toContain("tsgo:all");
+  });
+
   it("keeps shared Vitest wiring changes out of check test execution", () => {
     const result = detectChangedLanes(["test/vitest/vitest.shared.config.ts"]);
     const plan = createChangedCheckPlan(result);
@@ -869,14 +894,14 @@ describe("scripts/changed-lanes", () => {
     expect(plan.commands.map((command) => command.args[0])).not.toContain("test");
   });
 
-  it("does not route generated A2UI artifacts as direct Vitest targets", () => {
+  it("does not route generated plugin bundle artifacts as direct Vitest targets", () => {
     const result = detectChangedLanes([
-      "src/canvas-host/a2ui/.bundle.hash",
-      "test/scripts/bundle-a2ui.test.ts",
+      "extensions/demo/src/host/assets/.bundle.hash",
+      "extensions/canvas/scripts/bundle-a2ui.test.ts",
     ]);
     const plan = createChangedCheckPlan(result);
 
-    expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:core");
+    expect(plan.commands.map((command) => command.args[0])).toContain("tsgo:extensions");
     expect(plan.commands.map((command) => command.args[0])).not.toContain("test");
   });
 

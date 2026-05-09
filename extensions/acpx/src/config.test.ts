@@ -16,7 +16,7 @@ describe("embedded acpx plugin config", () => {
     expect(resolved.permissionMode).toBe("approve-reads");
     expect(resolved.nonInteractivePermissions).toBe("fail");
     expect(resolved.timeoutSeconds).toBe(120);
-    expect(resolved.agents).toEqual({});
+    expect(resolved.agents).toStrictEqual({});
   });
 
   it("keeps explicit timeoutSeconds config", () => {
@@ -98,7 +98,10 @@ describe("embedded acpx plugin config", () => {
     });
 
     const server = resolved.mcpServers["openclaw-plugin-tools"];
-    expect(server).toBeDefined();
+    expect(server).toMatchObject({
+      command: process.execPath,
+      args: expect.any(Array),
+    });
     expect(server.command).toBe(process.execPath);
     expect(Array.isArray(server.args)).toBe(true);
     expect(server.args?.length).toBeGreaterThan(0);
@@ -113,7 +116,10 @@ describe("embedded acpx plugin config", () => {
     });
 
     const server = resolved.mcpServers["openclaw-tools"];
-    expect(server).toBeDefined();
+    expect(server).toMatchObject({
+      command: process.execPath,
+      args: expect.any(Array),
+    });
     expect(server.command).toBe(process.execPath);
     expect(Array.isArray(server.args)).toBe(true);
     expect(server.args?.length).toBeGreaterThan(0);

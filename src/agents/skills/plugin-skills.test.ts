@@ -278,7 +278,7 @@ describe("resolvePluginSkillDirs", () => {
       } as OpenClawConfig,
     });
 
-    expect(dirs).toEqual([]);
+    expect(dirs).toStrictEqual([]);
   });
 
   it("cleans up generated plugin skill links when the plugin registry is empty", async () => {
@@ -300,7 +300,26 @@ describe("resolvePluginSkillDirs", () => {
       pluginSkillsDir,
     });
 
-    expect(dirs).toEqual([]);
+    expect(dirs).toStrictEqual([]);
+    await expect(fs.lstat(path.join(pluginSkillsDir, "stale-skill"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("cleans up generated plugin skill links when no workspace is active", async () => {
+    const pluginSkillsDir = await tempDirs.make("managed-plugin-skills-");
+    const staleRoot = await tempDirs.make("stale-plugin-skills-");
+    const staleSkill = path.join(staleRoot, "stale-skill");
+    await fs.mkdir(staleSkill, { recursive: true });
+    fsSync.symlinkSync(staleSkill, path.join(pluginSkillsDir, "stale-skill"), "dir");
+
+    const dirs = resolvePluginSkillDirs({
+      workspaceDir: undefined,
+      config: {} as OpenClawConfig,
+      pluginSkillsDir,
+    });
+
+    expect(dirs).toStrictEqual([]);
     await expect(fs.lstat(path.join(pluginSkillsDir, "stale-skill"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -410,7 +429,7 @@ describe("publishPluginSkills", () => {
     expect(fsSync.readlinkSync(linkB)).toBe(dirB);
   });
 
-  it("uses junction links for plugin skill directories on Windows", async () => {
+  it("uses junction links for plugin skill directories on Windows", () => {
     expect(resolvePluginSkillLinkType("win32")).toBe("junction");
     expect(resolvePluginSkillLinkType("linux")).toBe("dir");
     expect(resolvePluginSkillLinkType("darwin")).toBe("dir");
@@ -581,7 +600,7 @@ describe("publishPluginSkills", () => {
   it("handles empty skill dirs list without error", async () => {
     const managedDir = await tempDirs.make("managed-skills-");
     publishPluginSkills([], { pluginSkillsDir: managedDir });
-    // No error expected. The managed dir may or may not be created.
+    expect(fsSync.readdirSync(managedDir)).toStrictEqual([]);
   });
 
   it("handles collision: same basename from different plugins uses first one", async () => {
