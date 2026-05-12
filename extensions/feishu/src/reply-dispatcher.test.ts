@@ -245,7 +245,9 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expected: Record<string, unknown>,
   ): Record<string, unknown> {
     const start = streamingInstances[instanceIndex]?.start;
-    expect(start, "streaming instance must exist").toBeDefined();
+    if (!start) {
+      throw new Error(`Expected streaming instance ${instanceIndex}`);
+    }
     expect(start.mock.calls[0]?.[0]).toBe("oc_chat");
     expect(start.mock.calls[0]?.[1]).toBe("chat_id");
     return expectRecordFields(start.mock.calls[0]?.[2], "streaming start options", expected);
@@ -923,6 +925,38 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expectMockArgFields(sendMessageFeishuMock, "message send params", {
       replyToMessageId: "om_msg",
       replyInThread: true,
+    });
+  });
+
+  it("allows top-level fallback for normal group quoted replies", async () => {
+    const { options } = createDispatcherHarness({
+      replyToMessageId: "om_quote_reply",
+      replyInThread: true,
+      threadReply: true,
+      rootId: "om_original_msg",
+    });
+    await options.deliver({ text: "plain text" }, { kind: "final" });
+
+    expectMockArgFields(sendMessageFeishuMock, "message send params", {
+      replyToMessageId: "om_quote_reply",
+      replyInThread: true,
+      allowTopLevelReplyFallback: true,
+    });
+  });
+
+  it("keeps native topic replies opted out of top-level fallback", async () => {
+    const { options } = createDispatcherHarness({
+      replyToMessageId: "om_topic_root",
+      replyInThread: true,
+      threadReply: true,
+      rootId: "om_topic_root",
+    });
+    await options.deliver({ text: "plain text" }, { kind: "final" });
+
+    expectMockArgFields(sendMessageFeishuMock, "message send params", {
+      replyToMessageId: "om_topic_root",
+      replyInThread: true,
+      allowTopLevelReplyFallback: false,
     });
   });
 

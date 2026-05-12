@@ -10,6 +10,7 @@ import {
 import "./test-helpers/fast-bash-tools.js";
 import "./test-helpers/fast-coding-tools.js";
 import "./test-helpers/fast-openclaw-tools.js";
+import * as openClawPluginTools from "./openclaw-plugin-tools.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import { createOpenClawCodingTools } from "./pi-tools.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
@@ -251,6 +252,9 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("keeps PI Tool Search controls when core OpenClaw tools are not materialized", () => {
+    const createOpenClawToolsMock = vi.mocked(createOpenClawTools);
+    createOpenClawToolsMock.mockClear();
+
     const tools = createOpenClawCodingTools({
       includeCoreTools: false,
       includeToolSearchControls: true,
@@ -269,11 +273,13 @@ describe("createOpenClawCodingTools", () => {
     });
     const names = new Set(tools.map((tool) => tool.name));
 
+    expect(createOpenClawToolsMock).not.toHaveBeenCalled();
     expect(names.has("tool_search_code")).toBe(true);
     expect(names.has("tool_search")).toBe(true);
     expect(names.has("tool_describe")).toBe(true);
     expect(names.has("tool_call")).toBe(true);
     expect(names.has("message")).toBe(false);
+    expect(names.has("exec")).toBe(false);
   });
 
   it("exposes only an explicitly authorized owner-only tool to non-owner sessions", () => {
@@ -417,6 +423,39 @@ describe("createOpenClawCodingTools", () => {
     });
 
     expect(createOpenClawToolsMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards active model metadata to plugin-only tool construction", () => {
+    const createOpenClawToolsMock = vi.mocked(createOpenClawTools);
+    createOpenClawToolsMock.mockClear();
+    const resolvePluginToolsSpy = vi
+      .spyOn(openClawPluginTools, "resolveOpenClawPluginToolsForOptions")
+      .mockReturnValue([]);
+
+    try {
+      createOpenClawCodingTools({
+        config: testConfig,
+        includeCoreTools: false,
+        runtimeToolAllowlist: ["memory_search"],
+        modelProvider: "openrouter",
+        modelId: "openrouter/auto",
+        toolConstructionPlan: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: false,
+          includePluginTools: true,
+        },
+      });
+
+      expect(createOpenClawToolsMock).not.toHaveBeenCalled();
+      expect(resolvePluginToolsSpy).toHaveBeenCalledTimes(1);
+      const pluginToolOptions = resolvePluginToolsSpy.mock.calls.at(0)?.[0].options;
+      expect(pluginToolOptions?.modelProvider).toBe("openrouter");
+      expect(pluginToolOptions?.modelId).toBe("openrouter/auto");
+    } finally {
+      resolvePluginToolsSpy.mockRestore();
+    }
   });
 
   it("uses tools.alsoAllow for optional plugin discovery without widening to all plugins", () => {
@@ -1019,13 +1058,7 @@ describe("createOpenClawCodingTools", () => {
         path: textPath,
       });
 
-      expect(textResult?.content?.some((block) => block.type === "image")).toBe(false);
-      const textBlocks = textResult?.content?.filter((block) => block.type === "text") as
-        | Array<{ text?: string }>
-        | undefined;
-      expect(textBlocks?.length ?? 0).toBeGreaterThan(0);
-      const combinedText = textBlocks?.map((block) => block.text ?? "").join("\n");
-      expect(combinedText).toContain(contents);
+      expect(textResult?.content).toEqual([{ type: "text", text: contents }]);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
