@@ -186,12 +186,18 @@ export interface SessionConversations {
 }
 
 export interface SessionEntries {
-  created_by_json: string | null;
   entry_json: string;
   session_id: string;
   session_key: string;
   status: string | null;
   updated_at: number;
+}
+
+export interface SessionMembers {
+  added_at: number;
+  added_by: string;
+  identity_id: string;
+  session_key: string;
 }
 
 export interface SessionRoutes {
@@ -342,6 +348,7 @@ export interface DB {
   schema_meta: SchemaMeta;
   session_conversations: SessionConversations;
   session_entries: SessionEntries;
+  session_members: SessionMembers;
   session_routes: SessionRoutes;
   session_transcript_active_events: SessionTranscriptActiveEvents;
   session_transcript_fts: SessionTranscriptFts;
